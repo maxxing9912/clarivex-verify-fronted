@@ -1,62 +1,60 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 function App() {
-  const [status, setStatus] = useState('Waiting for data...');
-  const [params, setParams] = useState({});
+  const [status, setStatus] = useState('Raccolta dati...');
+  const params = new URLSearchParams(window.location.search);
+  const discordId = params.get('discordId');
+  const code = params.get('code');
+  const robloxUsername = params.get('robloxUsername'); // o robloxId se preferisci
 
   useEffect(() => {
-    // Prendi parametri dalla URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const discordId = urlParams.get('discordId');
-    const robloxId = urlParams.get('robloxId');
-    const code = urlParams.get('code');
-
     if (!discordId || !code) {
-      setStatus('Missing required parameters in URL');
+      setStatus('Parametri mancanti. Contatta lo staff.');
       return;
     }
-    setParams({ discordId, robloxId, code });
 
-    // Carica fingerprint
-    FingerprintJS.load().then(fp => {
-      fp.get().then(result => {
+    async function collectAndSend() {
+      try {
+        // 1) fingerprint
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
         const fingerprint = result.visitorId;
 
-        // Ottieni IP pubblico via API (opzionale)
-        fetch('https://api.ipify.org?format=json')
-          .then(res => res.json())
-          .then(data => {
-            const ip = data.ip;
+        // 2) IP pubblico (opzionale)
+        const ipResp = await fetch('https://api.ipify.org?format=json');
+        const ipJson = await ipResp.json();
+        const ip = ipJson.ip;
 
-            // Invia al backend
-            fetch('https://clarivex-verify-backend.onrender.com/', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ discordId, robloxId, code, fingerprint, ip }),
-            })
-              .then(res => res.json())
-              .then(json => {
-                if (json.success) {
-                  setStatus('Device and IP confirmed! Verification in progress...');
-                } else {
-                  setStatus('Verification failed: ' + (json.error || 'Unknown error'));
-                }
-              })
-              .catch(() => setStatus('Network error sending verification'));
-          })
-          .catch(() => setStatus('Could not fetch IP address'));
-      });
-    });
-  }, []);
+        // 3) invia al backend Render
+        const res = await fetch('https://clarivex-verify-backend.onrender.com/api/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ discordId, code, fingerprint, ip, robloxUsername }),
+        });
+        const json = await res.json();
+
+        if (json.success) {
+          setStatus('✅ Dispositivo confermato! Torna su Discord per completare la verifica.');
+        } else {
+          setStatus('❌ Errore: ' + (json.error || 'Unknown error'));
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus('❌ Errore nel processo, riprova.');
+      }
+    }
+
+    collectAndSend();
+  }, [discordId, code, robloxUsername]);
 
   return (
     <div style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
-      <h1>Verification</h1>
+      <h1>Clarivex Verification</h1>
       <p>Status: {status}</p>
-      <p>Discord ID: {params.discordId}</p>
-      <p>Roblox ID: {params.robloxId}</p>
-      <p>Code: {params.code}</p>
+      <p>Discord ID: {discordId}</p>
+      <p>Code: {code}</p>
+      <p>Roblox Username: {robloxUsername}</p>
     </div>
   );
 }
